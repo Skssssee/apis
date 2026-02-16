@@ -1,9 +1,9 @@
-from flask import Flask, Response, redirect, request, render_template_string
+from flask import Flask, Response, request, render_template_string
 import requests
 
 app = Flask(__name__)
 
-# --- CONFIGURATION ---
+# CONFIGURATION
 PLAYLIST_URL = "http://live-sgai-n-cf-mum-child.cdn.hotstar.com/hls/live/2123018/inallow-icct20wc-2026/hin/1540062231/15mindvrm01a6e7bbda1dae497c99f40c96defdc14616february2026/master_ap_1080_6.m3u8?random=1-inallow-icct20wc-2026&content_id=1540062231&language=hindi&resolution=1920x1080&hash=18bc&bandwidth=2490400&media_codec=codec=h264:dr=sdr&audio_codec=aac&layer=child&playback_proto=http&playback_host=live12p-pristine-akt.cdn.hotstar.com&si_match_id=720226&routing_bucket=156&asn_id=tffsz"
 BASE_HOST = "http://live12p-sgai-n-akt.cdn.hotstar.com"
 HEADERS = {
@@ -21,15 +21,19 @@ def index():
         <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
         <style>
             body { background: #000; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }
-            video { width: 100%; max-width: 900px; border: 1px solid #333; }
+            video { width: 100%; max-width: 900px; }
         </style>
     </head>
     <body>
-        <video id="video" controls autoplay></video>
+        <video id="video" controls autoplay muted></video>
         <script>
             var video = document.getElementById('video');
             if (Hls.isSupported()) {
-                var hls = new Hls({ xhrSetup: function(xhr, url) { xhr.withCredentials = false; } });
+                var hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    fragLoadingMaxRetry: 10
+                });
                 hls.loadSource('/playlist.m3u8');
                 hls.attachMedia(video);
             }
@@ -39,18 +43,23 @@ def index():
     """)
 
 @app.route('/playlist.m3u8')
-def proxy_m3u8():
+def playlist():
     r = requests.get(PLAYLIST_URL, headers=HEADERS)
+    # Get current host (e.g., apis.vercel.app)
     host = request.host_url.rstrip('/')
-    # Fix the paths to point to our local redirector
+    # Rewrite segments to proxy through our /ts route
     content = r.text.replace('/hls/live/', f'{host}/ts?path=/hls/live/')
-    resp = Response(content, mimetype='application/vnd.apple.mpegurl')
-    resp.headers['Access-Control-Allow-Origin'] = '*'
-    return resp
+    return Response(content, mimetype='application/vnd.apple.mpegurl', headers={"Access-Control-Allow-Origin": "*"})
 
 @app.route('/ts')
-def redirect_ts():
-    ts_path = request.args.get('path')
-    # 302 Redirect tells the browser to go to Hotstar directly.
-    # This bypasses Vercel's 10MB limit and loading lag!
-    return redirect(f"{BASE_HOST}{ts_path}", code=302)
+def ts():
+    path = request.args.get('path')
+    url = f"{BASE_HOST}{path}"
+    
+    # Proxy the actual video data
+    def generate():
+        with requests.get(url, headers=HEADERS, stream=True) as r:
+            for chunk in r.iter_content(chunk_size=8192):
+                yield chunk
+                
+    return Response(generate(), mimetype='video/mp2t', headers={"Access-Control-Allow-Origin": "*"})
