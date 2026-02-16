@@ -4,7 +4,6 @@ import requests
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-# Note: Keep an eye on the 'exp' timestamp in your cookie.
 PLAYLIST_URL = "http://live-sgai-n-cf-mum-child.cdn.hotstar.com/hls/live/2123018/inallow-icct20wc-2026/hin/1540062231/15mindvrm01a6e7bbda1dae497c99f40c96defdc14616february2026/master_ap_1080_6.m3u8?random=1-inallow-icct20wc-2026&content_id=1540062231&language=hindi&resolution=1920x1080&hash=18bc&bandwidth=2490400&media_codec=codec=h264:dr=sdr&audio_codec=aac&layer=child&playback_proto=http&playback_host=live12p-pristine-akt.cdn.hotstar.com&si_match_id=720226&routing_bucket=156&asn_id=tffsz"
 BASE_HOST = "http://live12p-sgai-n-akt.cdn.hotstar.com"
 HEADERS = {
@@ -18,22 +17,22 @@ def index():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>LIVE: T20 World Cup 2026</title>
+        <title>LIVE T20 World Cup</title>
         <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
         <style>
-            body { background: #000; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #fff; font-family: sans-serif; }
-            video { width: 90%; max-width: 900px; border: 2px solid #00ff00; border-radius: 10px; box-shadow: 0 0 20px #00ff0044; }
-            h1 { margin-bottom: 20px; font-weight: 300; }
+            body { background: #000; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }
+            video { width: 100%; max-width: 900px; border: 1px solid #333; }
         </style>
     </head>
     <body>
-        <h1>🏏 ICC T20 World Cup Live</h1>
         <video id="video" controls autoplay></video>
         <script>
             var video = document.getElementById('video');
-            var hls = new Hls();
-            hls.loadSource('/playlist.m3u8');
-            hls.attachMedia(video);
+            if (Hls.isSupported()) {
+                var hls = new Hls({ xhrSetup: function(xhr, url) { xhr.withCredentials = false; } });
+                hls.loadSource('/playlist.m3u8');
+                hls.attachMedia(video);
+            }
         </script>
     </body>
     </html>
@@ -43,7 +42,7 @@ def index():
 def proxy_m3u8():
     r = requests.get(PLAYLIST_URL, headers=HEADERS)
     host = request.host_url.rstrip('/')
-    # Rewrite URLs to point back to our /ts redirector
+    # Fix the paths to point to our local redirector
     content = r.text.replace('/hls/live/', f'{host}/ts?path=/hls/live/')
     resp = Response(content, mimetype='application/vnd.apple.mpegurl')
     resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -52,5 +51,6 @@ def proxy_m3u8():
 @app.route('/ts')
 def redirect_ts():
     ts_path = request.args.get('path')
-    # Redirecting to the actual CDN to save your Vercel bandwidth
+    # 302 Redirect tells the browser to go to Hotstar directly.
+    # This bypasses Vercel's 10MB limit and loading lag!
     return redirect(f"{BASE_HOST}{ts_path}", code=302)
